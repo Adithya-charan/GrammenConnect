@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Modal, Button, Input } from './Shared';
 import { generateContent, generateVisionContent, chatWithBot, transliterateText } from '../services/geminiService';
-import { Mic, Send, Camera, Upload, Image as ImageIcon, Plus, AlertTriangle, MapPin, MessageCircle, FileText, Download, Check, Languages, Sparkles, User, Activity, ArrowRight, Phone, X, Key, Info } from 'lucide-react';
+import { Mic, Send, Camera, Upload, Image as ImageIcon, Plus, AlertTriangle, MapPin, MessageCircle, FileText, Download, Check, Languages, Sparkles, User, Activity, ArrowRight, Phone, X, Key, Info, RefreshCw, ShoppingCart } from 'lucide-react';
 import { MarketItem, Language } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 
@@ -369,42 +369,125 @@ export const GovernanceModal: React.FC<{ isOpen: boolean; onClose: () => void; l
   const [transcript, setTranscript] = useState('');
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
   const { t } = useLanguage();
+
   useEffect(() => {
     if ('webkitSpeechRecognition' in window) {
       const recognition = new (window as any).webkitSpeechRecognition();
       recognition.continuous = false;
+      recognition.interimResults = false;
       recognition.lang = SPEECH_LANG_MAP[language] || 'en-IN';
-      recognition.onresult = (event: any) => { setTranscript(event.results[0][0].transcript); setIsListening(false); };
+      
+      recognition.onresult = (event: any) => { 
+        setTranscript(event.results[0][0].transcript); 
+        setIsListening(false); 
+      };
+
+      recognition.onerror = (event: any) => {
+        console.error("Speech Recognition Error:", event.error);
+        setError(`Microphone error: ${event.error}. Please ensure browser permissions.`);
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
       recognitionRef.current = recognition;
+    } else {
+      setError("Voice recognition not supported in this browser.");
     }
+
+    return () => {
+      recognitionRef.current?.stop();
+    };
   }, [language]);
+
   const toggleMic = () => {
-    if (isListening) { recognitionRef.current?.stop(); setIsListening(false); }
-    else { setTranscript(''); recognitionRef.current?.start(); setIsListening(true); }
+    setError(null);
+    if (isListening) { 
+      recognitionRef.current?.stop(); 
+      setIsListening(false); 
+    }
+    else { 
+      setTranscript(''); 
+      try {
+        recognitionRef.current?.start(); 
+        setIsListening(true); 
+      } catch (e) {
+        setError("Could not access microphone.");
+      }
+    }
   };
+
   const handleDraft = async () => {
     if (!transcript) return;
     setLoading(true);
-    const text = await generateContent(`Draft a formal grievance letter regarding: "${transcript}".`, language);
-    setDraft(text);
-    setLoading(false);
+    setError(null);
+    try {
+      const systemPrompt = "Draft a formal government grievance letter in India. Use a very professional and authoritative tone. Address the relevant local authority.";
+      const userPrompt = `Draft a grievance letter about: "${transcript}". Provide placeholders for personal details.`;
+      const text = await generateContent(userPrompt, language, systemPrompt);
+      setDraft(text);
+    } catch (err) {
+      setError("Failed to create draft. Check your internet.");
+    } finally {
+      setLoading(false);
+    }
   };
+
   return (
-    <Modal isOpen={isOpen} onClose={() => { onClose(); setDraft(''); setTranscript(''); }} title={t("Governance Aid")}>
+    <Modal isOpen={isOpen} onClose={() => { onClose(); setDraft(''); setTranscript(''); setError(null); }} title={t("Governance Aid")}>
       {!draft ? (
-        <div className="flex flex-col items-center py-6 space-y-6">
-          <button onClick={toggleMic} className={`w-24 h-24 rounded-full flex items-center justify-center transition-all ${isListening ? 'bg-red-500 animate-pulse' : 'bg-green-500 shadow-xl'} text-white`}><Mic size={40} /></button>
-          <p className="text-gray-500 font-medium">{isListening ? t("Loading") : (transcript || t("Tap Start"))}</p>
-          {transcript && <Button onClick={handleDraft} isLoading={loading} className="w-full">{t("Draft Letter")}</Button>}
+        <div className="flex flex-col items-center py-6 space-y-8">
+          <div className="text-center space-y-2 px-4">
+            <h4 className="font-black text-gray-900 uppercase tracking-tighter text-xl">{t("Speak Your Concern")}</h4>
+            <p className="text-gray-400 text-sm font-medium">{t("Tell us your problem and we will draft the formal document.")}</p>
+          </div>
+
+          <div className="relative">
+            <button 
+              onClick={toggleMic} 
+              className={`w-32 h-32 rounded-full flex items-center justify-center transition-all duration-500 shadow-2xl ${isListening ? 'bg-red-500 scale-110' : 'bg-green-600 hover:bg-green-700 hover:scale-105 active:scale-95'}`}
+            >
+              {isListening && <div className="animate-ping absolute w-full h-full bg-red-400 rounded-full opacity-50"></div>}
+              <Mic size={56} className="text-white relative z-10" />
+            </button>
+            {isListening && <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-red-500 font-black text-[10px] uppercase tracking-widest animate-pulse">{t("Listening...")}</div>}
+          </div>
+
+          <div className="w-full max-w-sm">
+            <div className={`p-6 rounded-3xl min-h-[100px] flex items-center justify-center text-center transition-all ${transcript ? 'bg-green-50 border-2 border-green-100 text-green-900' : 'bg-gray-50 border-2 border-dashed border-gray-200 text-gray-400'} font-medium`}>
+              {transcript || t("Transcript will appear here...")}
+            </div>
+          </div>
+
+          {error && <div className="bg-red-50 text-red-600 p-4 rounded-2xl flex items-center gap-3 text-xs font-bold uppercase tracking-tight"><AlertTriangle size={16} />{error}</div>}
+
+          {transcript && (
+            <div className="flex gap-4 w-full">
+              <Button variant="outline" onClick={() => setTranscript('')} className="flex-1 py-4 uppercase font-black tracking-widest text-[10px]">{t("Clear")}</Button>
+              <Button onClick={handleDraft} isLoading={loading} className="flex-1 py-4 uppercase font-black tracking-widest text-[10px] shadow-xl shadow-green-100">{t("Draft Letter")}</Button>
+            </div>
+          )}
         </div>
       ) : (
-        <div className="space-y-4">
-          <textarea className="w-full h-64 p-4 border border-gray-300 rounded-lg text-sm font-serif leading-relaxed outline-none" value={draft} onChange={(e) => setDraft(e.target.value)}/>
-          <div className="flex gap-3">
-            <Button variant="outline" onClick={() => setDraft('')} className="flex-1">{t("Search Again")}</Button>
-            <Button onClick={() => simulateDownload('Letter.txt', draft)} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white">{t("Download")}</Button>
+        <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
+          <div className="flex items-center justify-between px-2">
+            <h4 className="font-black text-gray-900 uppercase tracking-tight text-lg">{t("Letter Preview")}</h4>
+          </div>
+          <textarea 
+            className="w-full h-80 p-6 bg-gray-50 border-2 border-gray-100 rounded-3xl text-sm font-serif leading-relaxed outline-none focus:bg-white focus:border-green-500 transition-all shadow-inner" 
+            value={draft} 
+            onChange={(e) => setDraft(e.target.value)}
+          />
+          <div className="flex gap-4">
+            <Button variant="outline" onClick={() => setDraft('')} className="flex-1 py-4 uppercase font-black tracking-widest text-[10px]">{t("Try Again")}</Button>
+            <Button onClick={() => simulateDownload('Formal_Letter.txt', draft)} className="flex-1 py-4 bg-blue-600 hover:bg-blue-700 text-white uppercase font-black tracking-widest text-[10px] shadow-xl shadow-blue-100">
+              <Download size={16} /> {t("Download")}
+            </Button>
           </div>
         </div>
       )}
@@ -457,9 +540,18 @@ export const VisionModal: React.FC<{ isOpen: boolean; onClose: () => void; langu
   );
 };
 
-export const KisanModal: React.FC<{ isOpen: boolean; onClose: () => void; language: Language }> = ({ isOpen, onClose, language }) => {
+export const KisanModal: React.FC<{ 
+  isOpen: boolean; 
+  onClose: () => void; 
+  language: Language;
+  items: MarketItem[];
+  setItems: React.Dispatch<React.SetStateAction<MarketItem[]>>;
+}> = ({ isOpen, onClose, language, items, setItems }) => {
   const [view, setView] = useState<'buy' | 'sell'>('buy');
   const [sellImage, setSellImage] = useState<string | null>(null);
+  const [isPosting, setIsPosting] = useState(false);
+  const [newItem, setNewItem] = useState({ name: '', price: '', contact: '', location: 'My Village' });
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { t } = useLanguage();
 
@@ -472,75 +564,90 @@ export const KisanModal: React.FC<{ isOpen: boolean; onClose: () => void; langua
     }
   };
 
-  const marketItems: MarketItem[] = [
-    { id: '1', name: t('Organic Wheat'), price: '₹25/kg', seller: t('Ramesh Kumar'), location: t('Sonapur'), contact: '9876543210', image: 'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&q=80&w=400' },
-    { id: '2', name: t('Fresh Potatoes'), price: '₹15/kg', seller: t('Savitri Devi'), location: t('Village East'), contact: '9123456780', image: 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?auto=format&fit=crop&q=80&w=400' }
-  ];
+  const handlePost = () => {
+    if (!sellImage || !newItem.name || !newItem.price || !newItem.contact) {
+      alert("Please fill all details and upload an image.");
+      return;
+    }
+
+    setIsPosting(true);
+    setTimeout(() => {
+      const addedItem: MarketItem = {
+        id: Math.random().toString(36).substr(2, 9),
+        name: newItem.name,
+        price: newItem.price,
+        seller: "Me (You)",
+        location: newItem.location,
+        contact: newItem.contact,
+        image: sellImage
+      };
+
+      setItems(prev => [addedItem, ...prev]);
+      setIsPosting(false);
+      setSellImage(null);
+      setNewItem({ name: '', price: '', contact: '', location: 'My Village' });
+      setView('buy');
+    }, 1200);
+  };
 
   return (
     <Modal isOpen={isOpen} onClose={() => { onClose(); setView('buy'); setSellImage(null); }} title={t("Kisan Mandi")} maxWidth="max-w-5xl">
-      <div className="flex justify-between items-center mb-8">
+      <div className="flex justify-between items-center mb-10">
         <div className="flex flex-col">
-          <h3 className="text-2xl font-black text-gray-900 tracking-tighter uppercase">{view === 'buy' ? t("Kisan Mandi") : t("List Item")}</h3>
-          <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">{view === 'buy' ? t('Live Local Marketplace') : t('Create a New Listing')}</p>
+          <h3 className="text-3xl font-black text-gray-900 tracking-tighter uppercase">{view === 'buy' ? t("Kisan Mandi") : t("List Your Produce")}</h3>
+          <p className="text-[10px] text-gray-400 font-black uppercase tracking-[0.3em]">{view === 'buy' ? t('Live Local Marketplace') : t('Enter Item Details')}</p>
         </div>
-        <Button onClick={() => setView(view === 'buy' ? 'sell' : 'buy')} variant={view === 'buy' ? 'primary' : 'outline'} className="gap-2 px-6 py-3 rounded-2xl font-black uppercase tracking-widest text-xs">
-           {view === 'buy' ? <><Plus size={18} /> {t("Sell")}</> : t("Close")}
-        </Button>
+        <button 
+          onClick={() => setView(view === 'buy' ? 'sell' : 'buy')} 
+          className={`px-8 py-3.5 rounded-2xl font-black uppercase tracking-widest text-xs transition-all active:scale-95 flex items-center gap-3 border-2 ${view === 'buy' ? 'bg-green-600 text-white border-green-600 shadow-xl shadow-green-100 hover:bg-green-700' : 'bg-white text-gray-400 border-gray-100 hover:border-green-500 hover:text-green-600'}`}
+        >
+           {view === 'buy' ? <><Plus size={18} /> {t("Sell Produce")}</> : <><RefreshCw size={18} /> {t("Back to Market")}</>}
+        </button>
       </div>
 
       {view === 'buy' ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {marketItems.map(item => (
-            <div key={item.id} className="group bg-white border-2 border-gray-50 rounded-[2.5rem] overflow-hidden shadow-sm hover:shadow-2xl hover:border-green-100 transition-all duration-500">
-              <div className="relative h-56 overflow-hidden">
-                <img src={item.image} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
-                <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-md px-4 py-2 rounded-2xl shadow-xl border border-white">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 pb-10">
+          {items.map((item, idx) => (
+            <div key={item.id} className="group bg-white border-2 border-gray-50 rounded-[2.5rem] overflow-hidden shadow-sm hover:shadow-2xl transition-all duration-500 animate-in slide-in-from-bottom-4" style={{ animationDelay: `${idx * 100}ms` }}>
+              <div className="relative h-60 overflow-hidden bg-gray-100">
+                <img src={item.image} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-1000" />
+                <div className="absolute top-5 right-5 bg-white/95 backdrop-blur-md px-5 py-2.5 rounded-2xl shadow-xl border border-white">
                   <span className="text-sm font-black text-green-600">{item.price}</span>
                 </div>
+                {item.seller === "Me (You)" && <div className="absolute top-5 left-5 bg-blue-600 text-white px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg">Your Listing</div>}
               </div>
               <div className="p-8">
-                <h4 className="font-black text-xl text-gray-900 uppercase tracking-tight mb-4">{item.name}</h4>
-                <div className="space-y-3 mb-8">
-                  <div className="flex items-center gap-3 text-xs font-bold text-gray-400 uppercase tracking-widest">
-                    <User size={14} className="text-green-500" /> {item.seller}
-                  </div>
-                  <div className="flex items-center gap-3 text-xs font-bold text-gray-400 uppercase tracking-widest">
-                    <MapPin size={14} className="text-green-500" /> {item.location}
-                  </div>
+                <h4 className="font-black text-2xl text-gray-900 uppercase tracking-tight mb-6">{item.name}</h4>
+                <div className="space-y-4 mb-8 text-xs font-bold text-gray-400 uppercase tracking-widest">
+                  <div className="flex items-center gap-4"><div className="bg-green-50 p-2 rounded-xl text-green-500"><User size={16} /></div>{item.seller}</div>
+                  <div className="flex items-center gap-4"><div className="bg-green-50 p-2 rounded-xl text-green-500"><MapPin size={16} /></div>{item.location}</div>
                 </div>
-                <a 
-                  href={`tel:${item.contact}`}
-                  className="w-full bg-green-50 text-green-700 border-2 border-green-100 py-4 rounded-2xl flex items-center justify-center gap-3 font-black uppercase tracking-widest text-xs hover:bg-green-600 hover:text-white hover:border-green-600 transition-all active:scale-95 shadow-sm"
-                >
-                  <Phone size={16} /> {t("Call")}: {item.contact}
-                </a>
+                <a href={`tel:${item.contact}`} className="w-full bg-green-50 text-green-700 border-2 border-green-100 py-4.5 rounded-[2rem] flex items-center justify-center gap-3 font-black uppercase tracking-widest text-xs hover:bg-green-600 hover:text-white transition-all shadow-sm"><Phone size={16} /> {t("Contact Seller")}</a>
               </div>
             </div>
           ))}
+          {items.length === 0 && <div className="col-span-full py-20 text-center"><p className="text-gray-300 font-black uppercase tracking-widest text-xs">No items currently listed.</p></div>}
         </div>
       ) : (
-        <div className="max-w-md mx-auto space-y-8 py-4">
+        <div className="max-w-2xl mx-auto space-y-10 py-4 pb-12">
           {!sellImage ? (
-            <div onClick={() => fileInputRef.current?.click()} className="border-4 border-dashed border-gray-100 bg-gray-50 rounded-[3rem] p-16 flex flex-col items-center gap-6 cursor-pointer hover:bg-green-50 hover:border-green-200 transition-all group">
-               <div className="w-20 h-20 bg-white rounded-3xl flex items-center justify-center text-gray-300 group-hover:text-green-500 shadow-inner group-hover:rotate-12 transition-all">
-                 <Camera size={40} />
-               </div>
-               <span className="font-black text-gray-400 uppercase tracking-widest text-xs text-center">{t("Click to upload")}</span>
+            <div onClick={() => fileInputRef.current?.click()} className="border-4 border-dashed border-gray-100 bg-gray-50 rounded-[4rem] p-24 flex flex-col items-center gap-8 cursor-pointer hover:bg-green-50 hover:border-green-200 transition-all group shadow-inner">
+               <div className="w-24 h-24 bg-white rounded-[2rem] flex items-center justify-center text-gray-200 group-hover:text-green-500 shadow-xl transition-all"><Camera size={48} /></div>
+               <span className="font-black text-gray-400 uppercase tracking-[0.3em] text-xs block">{t("Tap to upload photo")}</span>
                <input type="file" ref={fileInputRef} hidden accept="image/*" onChange={handleSellUpload} />
             </div>
           ) : (
-            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-              <div className="relative h-48 rounded-[2rem] overflow-hidden border-4 border-white shadow-xl">
+            <div className="space-y-8 animate-in slide-in-from-bottom-8 duration-500">
+              <div className="relative h-64 rounded-[3rem] overflow-hidden border-4 border-white shadow-2xl bg-gray-100">
                 <img src={sellImage} className="w-full h-full object-cover" />
-                <button onClick={() => setSellImage(null)} className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-full shadow-lg hover:bg-red-600">
-                  <X size={16} />
-                </button>
+                <button onClick={() => setSellImage(null)} className="absolute top-4 right-4 bg-white/90 text-red-500 p-4 rounded-full shadow-lg hover:bg-red-500 hover:text-white transition-all"><X size={20} /></button>
               </div>
-              <Input label={t("Item Name")} placeholder={t("e.g. Basmati Rice")} className="rounded-2xl py-3 border-2" />
-              <Input label={t("Expected Price")} placeholder={t("e.g. ₹40/kg")} className="rounded-2xl py-3 border-2" />
-              <Input label={t("Contact Number")} type="tel" placeholder={t("e.g. 9876543210")} className="rounded-2xl py-3 border-2" />
-              <Button className="w-full py-5 font-black uppercase tracking-widest rounded-[2rem] shadow-xl shadow-green-100 mt-4">{t("Post Listing")}</Button>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Input label={t("Item Name")} placeholder={t("e.g. Fresh Tomatoes")} value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} />
+                <Input label={t("Expected Price")} placeholder={t("e.g. ₹20/kg")} value={newItem.price} onChange={e => setNewItem({...newItem, price: e.target.value})} />
+              </div>
+              <Input label={t("Contact Phone Number")} type="tel" placeholder="9876543210" value={newItem.contact} onChange={e => setNewItem({...newItem, contact: e.target.value})} />
+              <Button onClick={handlePost} isLoading={isPosting} className="w-full py-6 font-black uppercase tracking-widest rounded-[2.5rem] bg-green-600 hover:bg-green-700 text-lg flex items-center justify-center gap-3"><Sparkles size={24} /> {t("Post My Listing")}</Button>
             </div>
           )}
         </div>

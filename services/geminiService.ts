@@ -15,11 +15,10 @@ const getLanguageInstruction = (lang: string) => {
 
 /**
  * Standard content generation using Gemini 3 Flash.
- * Simplified structure to ensure maximum compatibility.
  */
 export const generateContent = async (prompt: string, language: string = 'en', systemInstruction?: string): Promise<string> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
@@ -40,7 +39,7 @@ export const generateContent = async (prompt: string, language: string = 'en', s
 export const transliterateText = async (text: string, targetLang: string): Promise<string> => {
   if (!text || targetLang === 'en') return text;
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: `Transliterate the following text into the ${LANGUAGE_MAP[targetLang]} script: "${text}"`,
@@ -54,10 +53,17 @@ export const transliterateText = async (text: string, targetLang: string): Promi
 
 /**
  * Multimodal vision analysis.
+ * Added skipLanguageInstruction to prevent translation for technical checks like face verification.
  */
-export const generateVisionContent = async (prompt: string, base64Image: string, mimeType: string, language: string = 'en'): Promise<string> => {
+export const generateVisionContent = async (
+  prompt: string, 
+  base64Image: string, 
+  mimeType: string, 
+  language: string = 'en',
+  skipLanguageInstruction: boolean = false
+): Promise<string> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: { 
@@ -66,7 +72,9 @@ export const generateVisionContent = async (prompt: string, base64Image: string,
           { text: prompt }
         ] 
       },
-      config: { systemInstruction: getLanguageInstruction(language) }
+      config: { 
+        systemInstruction: skipLanguageInstruction ? "You are a specialized vision analysis system. Provide technical responses as requested. Answer ONLY with the specific keywords provided in the prompt." : getLanguageInstruction(language) 
+      }
     });
     return response.text || "Analysis failed.";
   } catch (error) {
@@ -76,13 +84,11 @@ export const generateVisionContent = async (prompt: string, base64Image: string,
 };
 
 /**
- * Persistent chat functionality. 
- * Switched to gemini-3-flash-preview for all chats to avoid specialized key requirements
- * and ensure constant availability for the user.
+ * Persistent chat functionality.
  */
 export const chatWithBot = async (history: { role: 'user' | 'model', text: string }[], message: string, systemInstruction: string, language: string = 'en') => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const chat = ai.chats.create({
       model: 'gemini-3-flash-preview',
       config: { 
@@ -99,10 +105,6 @@ export const chatWithBot = async (history: { role: 'user' | 'model', text: strin
     return result.text;
   } catch (e: any) {
     console.error("Gemini Chat Error:", e);
-    // Specifically handle model availability or key issues
-    if (e.message?.includes("not found") || e.message?.includes("permission")) {
-      return "The AI service is currently unavailable. Please try again shortly.";
-    }
-    return "Connection error. Please try again.";
+    return "Connection error. Please check your internet and try again.";
   }
 };

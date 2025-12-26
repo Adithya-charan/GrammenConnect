@@ -1,12 +1,13 @@
 
-import React, { useState, useContext, createContext, useEffect } from 'react';
-import { User as UserIcon, LogOut, Eye, Globe, BookOpen, Wifi, WifiOff, BarChart3, Cloud, Briefcase, Landmark, Navigation, ShoppingCart, Heart, Shield, GraduationCap, X, Mic, MessageCircle, ChevronDown, Download, ArrowRight, Sparkles, HandHelping, Check, AlertCircle } from 'lucide-react';
-import { User, AppView, ModalType, LearningModule, Language } from './types';
+import React, { useState, useContext, createContext, useEffect, useRef } from 'react';
+import { User as UserIcon, LogOut, Eye, Globe, BookOpen, Wifi, WifiOff, BarChart3, Cloud, Briefcase, Landmark, Navigation, ShoppingCart, Heart, Shield, GraduationCap, X, Mic, MessageCircle, ChevronDown, Download, ArrowRight, Sparkles, HandHelping, Check, AlertCircle, Scan, Camera } from 'lucide-react';
+import { User, AppView, ModalType, LearningModule, Language, MarketItem } from './types';
 import { Button, Card, Input, Modal } from './components/Shared';
 import { ResumeModal, SchemeModal, MobilityModal } from './components/ToolModals';
 import { GovernanceModal, ChatModal, VisionModal, KisanModal, GlobalChatModal, OfflineResourcesModal, CommunityHelpModal } from './components/ServiceModals';
 import { LearningViewer } from './components/LearningModule';
 import { useLanguage, LANGUAGES } from './contexts/LanguageContext';
+import { generateVisionContent } from './services/geminiService';
 
 // --- Context ---
 interface AppContextType {
@@ -67,6 +68,146 @@ const LanguageSelector: React.FC = () => {
           </div>
         </>
       )}
+    </div>
+  );
+};
+
+// --- Face Authentication Component ---
+const FaceAuth: React.FC<{ onSuccess: (name: string) => void; language: Language }> = ({ onSuccess, language }) => {
+  const [active, setActive] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const { t } = useLanguage();
+
+  useEffect(() => {
+    return () => {
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
+
+  const startCamera = async () => {
+    setActive(true);
+    setError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          facingMode: 'user',
+          width: { ideal: 400 },
+          height: { ideal: 400 }
+        } 
+      });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+    } catch (err) {
+      setError("Camera Access Denied. Please enable camera permissions.");
+      setActive(false);
+    }
+  };
+
+  const captureAndVerify = async () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const context = canvasRef.current.getContext('2d');
+      if (!context) throw new Error("Canvas context failed");
+      
+      // Ensure canvas matches video dimensions for accurate capture
+      canvasRef.current.width = videoRef.current.videoWidth;
+      canvasRef.current.height = videoRef.current.videoHeight;
+      
+      context.drawImage(videoRef.current, 0, 0);
+      const imageData = canvasRef.current.toDataURL('image/jpeg', 0.85);
+      const base64 = imageData.split(',')[1];
+
+      // Highly specific prompt for adversarial detection
+      const prompt = `
+        TASK: BIOMETRIC AUTHENTICITY AND FACE VERIFICATION.
+        
+        STRICT DETECTION RULES:
+        1. "VERIFIED" only if:
+           - A clear, unobstructed human face is centered in the frame.
+           - The eyes are visible and look like real human eyes.
+           - NO hands, fingers, or objects are touching or covering any part of the face.
+        
+        2. "RETRY" immediately if:
+           - Any hand, finger, or physical object is visible near or over the face.
+           - The user is holding a phone, photo, or digital screen in front of the camera.
+           - The face is blurred, too dark, or mostly cut off.
+           - The image contains multiple people.
+           - The image contains animals or inanimate objects disguised as faces.
+        
+        OUTPUT REQUIREMENT: Respond ONLY with the single word "VERIFIED" or the single word "RETRY". Do not provide any other text.
+      `;
+
+      // Pass true to skipLanguageInstruction to ensure model returns English keyword "VERIFIED"
+      const result = await generateVisionContent(
+        prompt, 
+        base64, 
+        "image/jpeg", 
+        language,
+        true 
+      );
+
+      const normalizedResult = result.toUpperCase().trim();
+      
+      if (normalizedResult.includes("VERIFIED")) {
+        onSuccess("Grameen Citizen");
+      } else {
+        setError("Verification Failed. Please remove hands/objects and center your face.");
+      }
+    } catch (err) {
+      console.error("Auth Error:", err);
+      setError("Technical error during scan. Please check lighting and try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const stopCamera = () => {
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+      videoRef.current.srcObject = null;
+    }
+    setActive(false);
+  };
+
+  if (!active) {
+    return (
+      <button 
+        onClick={startCamera}
+        className="w-full flex items-center justify-center gap-3 bg-indigo-50 text-indigo-700 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] border-2 border-indigo-100 hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition-all active:scale-95"
+      >
+        <Scan size={18} /> Face Sign In
+      </button>
+    );
+  }
+
+  return (
+    <div className="space-y-6 flex flex-col items-center animate-in zoom-in duration-300">
+      <div className="relative w-64 h-64 rounded-full overflow-hidden border-4 border-green-500 shadow-2xl bg-black">
+        <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover scale-x-[-1]" />
+        <div className="animate-scan" />
+        {loading && (
+          <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-20">
+            <div className="animate-spin rounded-full h-10 w-10 border-4 border-white border-t-transparent" />
+          </div>
+        )}
+      </div>
+      <canvas ref={canvasRef} className="hidden" />
+      {error && <p className="text-red-500 text-[10px] font-black uppercase tracking-widest text-center max-w-[240px] leading-tight mt-2">{error}</p>}
+      <div className="flex gap-3 w-full">
+         <Button onClick={captureAndVerify} isLoading={loading} className="flex-1 bg-green-600 hover:bg-green-700 py-4 font-black text-[10px] uppercase tracking-widest">Scan Face</Button>
+         <Button variant="outline" onClick={stopCamera} className="flex-1 py-4 font-black text-[10px] uppercase tracking-widest">Cancel</Button>
+      </div>
     </div>
   );
 };
@@ -205,7 +346,7 @@ const LandingPage: React.FC<{ onGetStarted: () => void }> = ({ onGetStarted }) =
           <p className="text-gray-400 font-medium leading-relaxed">{t("Portal Description")}</p>
         </Card>
         <Card className={`border-t-4 shadow-2xl shadow-gray-200/50 transition-all duration-500 bg-white group hover:-translate-y-4 p-10 flex flex-col items-center md:items-start text-center md:text-left ${isOffline ? 'border-t-amber-500 hover:shadow-amber-200' : 'border-t-blue-500 hover:shadow-blue-200'}`}>
-          <div className={`w-20 h-20 rounded-3xl flex items-center justify-center mb-8 group-hover:rotate-6 transition-transform shadow-inner border ${isOffline ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>{isOffline ? <WifiOff size={36} /> : <Wifi size={36} />}</div>
+          <div className={`w-20 h-20 rounded-3xl flex items-center justify-center mb-8 group-hover:rotate-6 transition-transform shadow-inner border ${isOffline ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>{isOffline ? <WifiOff size={36} /> : <Wifi size={16} />}</div>
           <h3 className={`text-2xl font-black mb-4 text-gray-900 uppercase tracking-tight transition-colors ${isOffline ? 'group-hover:text-amber-600' : 'group-hover:text-blue-600'}`}>{t("Offline Ready")}</h3>
           <p className="text-gray-400 font-medium leading-relaxed">{t("Offline Description")}</p>
         </Card>
@@ -355,6 +496,12 @@ export default function App() {
   const [elderMode, setElderMode] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
   
+  // Persistent items state for Kisan Mandi to fix the "not posting list" bug
+  const [marketItems, setMarketItems] = useState<MarketItem[]>([
+    { id: '1', name: 'Organic Wheat', price: '₹25/kg', seller: 'Ramesh Kumar', location: 'Sonapur', contact: '9876543210', image: 'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&q=80&w=400' },
+    { id: '2', name: 'Fresh Potatoes', price: '₹15/kg', seller: 'Savitri Devi', location: 'Village East', contact: '9123456780', image: 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?auto=format&fit=crop&q=80&w=400' }
+  ]);
+  
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
@@ -363,11 +510,11 @@ export default function App() {
   const toggleOffline = () => setIsOffline(!isOffline);
   const { t, language } = useLanguage();
 
-  const handleLogin = () => {
-    if (!email) return;
+  const handleLogin = (name?: string) => {
+    if (!name && !email) return;
     setLoginLoading(true);
     setTimeout(() => {
-      setUser({ name: email.split('@')[0], email });
+      setUser({ name: name || email.split('@')[0], email: email || 'face-auth@grameen.com' });
       setLoginLoading(false);
       setModal(ModalType.NONE);
       setView(AppView.PORTAL);
@@ -424,9 +571,19 @@ export default function App() {
         <Modal isOpen={modal === ModalType.LOGIN} onClose={() => setModal(ModalType.NONE)} title={t("Welcome")} maxWidth="max-w-md">
           <div className="space-y-6 pt-2">
             <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">{t("Access Dashboard")}</p>
-            <Input label={t("Email Address")} placeholder="name@village.com" value={email} onChange={e => setEmail(e.target.value)} />
-            <Input label={t("Password")} type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} />
-            <Button onClick={handleLogin} isLoading={loginLoading} className="w-full mt-6 py-4 font-black uppercase tracking-widest rounded-2xl">{t("Sign In")}</Button>
+            
+            <div className="space-y-4">
+              <Input label={t("Email Address")} placeholder="name@village.com" value={email} onChange={e => setEmail(e.target.value)} />
+              <Input label={t("Password")} type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} />
+              <Button onClick={() => handleLogin()} isLoading={loginLoading} className="w-full py-4 font-black uppercase tracking-widest rounded-2xl">{t("Sign In")}</Button>
+            </div>
+
+            <div className="relative py-4">
+              <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-100"></div></div>
+              <div className="relative flex justify-center text-[10px] font-black uppercase tracking-widest text-gray-300"><span className="bg-white px-4">OR</span></div>
+            </div>
+
+            <FaceAuth onSuccess={(name) => handleLogin(name)} language={language} />
           </div>
         </Modal>
 
@@ -436,7 +593,15 @@ export default function App() {
         <GovernanceModal isOpen={modal === ModalType.GOVERNANCE} onClose={() => setModal(ModalType.NONE)} language={language} />
         <ChatModal isOpen={modal === ModalType.HEALTH_CHAT} onClose={() => setModal(ModalType.NONE)} language={language} />
         <GlobalChatModal isOpen={modal === ModalType.GLOBAL_CHAT} onClose={() => setModal(ModalType.NONE)} language={language} />
-        <KisanModal isOpen={modal === ModalType.MARKET} onClose={() => setModal(ModalType.NONE)} language={language} />
+        
+        <KisanModal 
+          isOpen={modal === ModalType.MARKET} 
+          onClose={() => setModal(ModalType.NONE)} 
+          language={language}
+          items={marketItems}
+          setItems={setMarketItems}
+        />
+        
         <VisionModal isOpen={modal === ModalType.VISION} onClose={() => setModal(ModalType.NONE)} language={language} />
         <OfflineResourcesModal isOpen={modal === ModalType.OFFLINE_RESOURCES} onClose={() => setModal(ModalType.NONE)} language={language} />
         <CommunityHelpModal isOpen={modal === ModalType.COMMUNITY_HELP} onClose={() => setModal(ModalType.NONE)} language={language} />

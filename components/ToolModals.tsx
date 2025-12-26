@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 import { Modal, Input, Button } from './Shared';
 import { generateContent } from '../services/geminiService';
-import { MapPin, User, Briefcase, GraduationCap, Mic, Volume2, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { MapPin, User, Briefcase, GraduationCap, Mic, Volume2, ShieldCheck, AlertTriangle, Navigation } from 'lucide-react';
 import { Language } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
+import L from 'leaflet';
 
 // --- Resume Builder ---
 export const ResumeModal: React.FC<{ isOpen: boolean; onClose: () => void; language: Language }> = ({ isOpen, onClose, language }) => {
@@ -106,11 +108,57 @@ export const SchemeModal: React.FC<{ isOpen: boolean; onClose: () => void; langu
 export const MobilityModal: React.FC<{ isOpen: boolean; onClose: () => void; language: Language }> = ({ isOpen, onClose, language }) => {
   const [step, setStep] = useState(0);
   const [data, setData] = useState({ start: '', end: '', aid: 'None', time: '' });
+  const mapRef = useRef<HTMLDivElement>(null);
+  const leafletMap = useRef<L.Map | null>(null);
   const { t } = useLanguage();
+
+  useEffect(() => {
+    // Re-initialize map when step changes to 'Results' (step 2)
+    let timer: any;
+    if (step === 2 && mapRef.current) {
+      // Small delay to ensure the modal's animation finishes and container has actual width/height
+      timer = setTimeout(() => {
+        if (!mapRef.current) return;
+        
+        // Cleanup existing map if it somehow exists
+        if (leafletMap.current) {
+          leafletMap.current.remove();
+        }
+
+        const lat = 22.5726;
+        const lng = 88.3639;
+        
+        leafletMap.current = L.map(mapRef.current).setView([lat, lng], 14);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap'
+        }).addTo(leafletMap.current);
+
+        const routePoints: L.LatLngExpression[] = [
+          [lat, lng],
+          [lat + 0.005, lng + 0.005],
+          [lat + 0.01, lng + 0.008]
+        ];
+
+        L.polyline(routePoints, { color: '#10b981', weight: 6, opacity: 0.8 }).addTo(leafletMap.current);
+        L.marker([lat, lng]).addTo(leafletMap.current).bindPopup("Start").openPopup();
+        L.marker([lat + 0.01, lng + 0.008]).addTo(leafletMap.current).bindPopup("Destination");
+        
+        // Crucial for Leaflet in dynamic containers/modals
+        leafletMap.current.invalidateSize();
+      }, 200);
+    }
+    return () => {
+      clearTimeout(timer);
+      if (leafletMap.current) {
+        leafletMap.current.remove();
+        leafletMap.current = null;
+      }
+    };
+  }, [step]);
 
   const handleSearch = () => {
     setStep(1);
-    setTimeout(() => setStep(2), 2000);
+    setTimeout(() => setStep(2), 1500);
   };
 
   return (
@@ -123,7 +171,7 @@ export const MobilityModal: React.FC<{ isOpen: boolean; onClose: () => void; lan
            <div className="grid grid-cols-2 gap-4">
              <div className="flex flex-col gap-1">
                <label className="text-sm font-medium text-gray-700">{t("Mobility Aid")}</label>
-               <select className="px-4 py-2 border border-gray-300 rounded-lg" value={data.aid} onChange={e => setData({...data, aid: e.target.value})}>
+               <select className="px-4 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-green-500" value={data.aid} onChange={e => setData({...data, aid: e.target.value})}>
                  <option value="None">None</option>
                  <option value="Wheelchair">Wheelchair</option>
                  <option value="Walking Stick">Walking Stick</option>
@@ -132,34 +180,45 @@ export const MobilityModal: React.FC<{ isOpen: boolean; onClose: () => void; lan
              </div>
              <Input label={t("Time")} type="time" value={data.time} onChange={e => setData({...data, time: e.target.value})} />
            </div>
-           <Button onClick={handleSearch} className="w-full">{t("Find Safe Route")}</Button>
+           <Button onClick={handleSearch} className="w-full py-4 mt-2 font-black uppercase tracking-widest rounded-2xl">
+             {t("Find Safe Route")}
+           </Button>
         </div>
       )}
       {step === 1 && (
-        <div className="flex flex-col items-center justify-center py-10">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-500 mb-4"></div>
-          <p className="text-gray-600">{t("Loading")}</p>
+        <div className="flex flex-col items-center justify-center py-24">
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-green-500 border-t-transparent mb-4"></div>
+          <p className="text-gray-500 font-black uppercase tracking-widest text-[10px]">{t("Calculating Path")}</p>
         </div>
       )}
       {step === 2 && (
-        <div className="space-y-4">
-          <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-start gap-3">
-             <ShieldCheck className="text-green-600 shrink-0 mt-1" />
+        <div className="space-y-4 animate-in fade-in duration-500">
+          <div className="bg-green-50 border border-green-200 rounded-2xl p-5 flex items-start gap-4 shadow-sm">
+             <ShieldCheck className="text-green-600 shrink-0 mt-1" size={24} />
              <div>
-               <h4 className="font-bold text-green-800">Safe Route Found</h4>
-               <p className="text-sm text-green-700 mt-1">This route is paved and well-lit. Avoids the rocky path near the canal.</p>
+               <h4 className="font-black text-green-800 uppercase tracking-tight">{t("Safe Route Found")}</h4>
+               <p className="text-sm text-green-700 mt-1 leading-relaxed">This route is paved and well-lit. Avoids construction on the main road.</p>
              </div>
           </div>
-          <div className="h-48 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400">
-             [Map Visualization Placeholder]
+          
+          <div className="h-80 w-full relative bg-gray-50 rounded-[2rem] overflow-hidden border-2 border-gray-100 shadow-inner">
+             <div ref={mapRef} className="h-full w-full z-10" />
           </div>
-          <div className="flex justify-between items-center text-sm text-gray-600 bg-gray-50 p-3 rounded-lg">
-             <span>Est. Time: <strong>15 mins</strong></span>
-             <span>Distance: <strong>1.2 km</strong></span>
+
+          <div className="grid grid-cols-2 gap-4">
+             <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Estimated Time</p>
+               <p className="font-black text-gray-900 text-lg">15 mins</p>
+             </div>
+             <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Route Distance</p>
+               <p className="font-black text-gray-900 text-lg">1.2 km</p>
+             </div>
           </div>
-          <div className="flex gap-3">
-            <Button variant="outline" onClick={() => setStep(0)} className="flex-1">{t("Plan Another")}</Button>
-            <Button onClick={onClose} className="flex-1">{t("Close")}</Button>
+
+          <div className="flex gap-4 pt-4">
+            <Button variant="outline" onClick={() => setStep(0)} className="flex-1 py-4 font-black uppercase tracking-widest text-[10px]">{t("Plan Another")}</Button>
+            <Button onClick={onClose} className="flex-1 py-4 font-black uppercase tracking-widest text-[10px]">{t("Close")}</Button>
           </div>
         </div>
       )}
