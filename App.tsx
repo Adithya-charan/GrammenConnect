@@ -1,6 +1,6 @@
 
 import React, { useState, useContext, createContext, useEffect, useRef } from 'react';
-import { User as UserIcon, LogOut, Eye, Globe, BookOpen, Wifi, WifiOff, BarChart3, Cloud, Briefcase, Landmark, Navigation, ShoppingCart, Heart, Shield, GraduationCap, X, Mic, MessageCircle, ChevronDown, Download, ArrowRight, Sparkles, HandHelping, Check, AlertCircle, Scan, Camera } from 'lucide-react';
+import { User as UserIcon, LogOut, Eye, Globe, BookOpen, Wifi, WifiOff, BarChart3, Cloud, Briefcase, Landmark, Navigation, ShoppingCart, Heart, Shield, GraduationCap, X, Mic, MessageCircle, ChevronDown, Download, ArrowRight, Sparkles, HandHelping, Check, AlertCircle, Scan, Camera, Loader2 } from 'lucide-react';
 import { User, AppView, ModalType, LearningModule, Language, MarketItem } from './types';
 import { Button, Card, Input, Modal } from './components/Shared';
 import { ResumeModal, SchemeModal, MobilityModal } from './components/ToolModals';
@@ -77,6 +77,7 @@ const FaceAuth: React.FC<{ onSuccess: (name: string) => void; language: Language
   const [active, setActive] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [statusText, setStatusText] = useState<string>('');
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { t } = useLanguage();
@@ -93,12 +94,13 @@ const FaceAuth: React.FC<{ onSuccess: (name: string) => void; language: Language
   const startCamera = async () => {
     setActive(true);
     setError(null);
+    setStatusText('');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
           facingMode: 'user',
-          width: { ideal: 400 },
-          height: { ideal: 400 }
+          width: { ideal: 640 },
+          height: { ideal: 480 }
         } 
       });
       if (videoRef.current) {
@@ -114,40 +116,41 @@ const FaceAuth: React.FC<{ onSuccess: (name: string) => void; language: Language
     if (!videoRef.current || !canvasRef.current) return;
     setLoading(true);
     setError(null);
+    setStatusText('Analyzing facial features...');
     
     try {
-      const context = canvasRef.current.getContext('2d');
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const context = canvas.getContext('2d');
       if (!context) throw new Error("Canvas context failed");
       
-      // Ensure canvas matches video dimensions for accurate capture
-      canvasRef.current.width = videoRef.current.videoWidth;
-      canvasRef.current.height = videoRef.current.videoHeight;
+      // Sync dimensions
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
       
-      context.drawImage(videoRef.current, 0, 0);
-      const imageData = canvasRef.current.toDataURL('image/jpeg', 0.85);
+      // Flip context to match mirrored preview for consistency
+      context.translate(canvas.width, 0);
+      context.scale(-1, 1);
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      const imageData = canvas.toDataURL('image/jpeg', 0.9);
       const base64 = imageData.split(',')[1];
 
-      // Highly specific prompt for adversarial detection
+      // Robust prompt for fraud prevention and quality check
       const prompt = `
-        TASK: BIOMETRIC AUTHENTICITY AND FACE VERIFICATION.
+        Does this image contain a clear human face?
         
-        STRICT DETECTION RULES:
-        1. "VERIFIED" only if:
-           - A clear, unobstructed human face is centered in the frame.
-           - The eyes are visible and look like real human eyes.
-           - NO hands, fingers, or objects are touching or covering any part of the face.
+        Strict Conditions for 'VERIFIED':
+        1. The face is clearly visible, centered, and well-lit.
+        2. NO hands, fingers, hair, or clothing are covering the mouth, eyes, or nose.
+        3. NO physical objects (phones, photos, screens) are being held up to the camera.
+        4. It is a live person, not a photo of a photo.
         
-        2. "RETRY" immediately if:
-           - Any hand, finger, or physical object is visible near or over the face.
-           - The user is holding a phone, photo, or digital screen in front of the camera.
-           - The face is blurred, too dark, or mostly cut off.
-           - The image contains multiple people.
-           - The image contains animals or inanimate objects disguised as faces.
-        
-        OUTPUT REQUIREMENT: Respond ONLY with the single word "VERIFIED" or the single word "RETRY". Do not provide any other text.
+        Output format: 
+        If verified: "STATUS: VERIFIED"
+        If not verified: "STATUS: RETRY - [Short 5-word reason in English]"
       `;
 
-      // Pass true to skipLanguageInstruction to ensure model returns English keyword "VERIFIED"
       const result = await generateVisionContent(
         prompt, 
         base64, 
@@ -156,16 +159,21 @@ const FaceAuth: React.FC<{ onSuccess: (name: string) => void; language: Language
         true 
       );
 
-      const normalizedResult = result.toUpperCase().trim();
+      const normalizedResult = result.toUpperCase();
       
       if (normalizedResult.includes("VERIFIED")) {
-        onSuccess("Grameen Citizen");
+        setStatusText('Identity Verified!');
+        // Small delay to show the success state
+        setTimeout(() => onSuccess("Grameen Citizen"), 500);
       } else {
-        setError("Verification Failed. Please remove hands/objects and center your face.");
+        const reasonMatch = result.match(/RETRY - (.*)/i);
+        const reason = reasonMatch ? reasonMatch[1] : "Position face clearly in center";
+        setError(`Failed: ${reason}`);
+        setStatusText('');
       }
     } catch (err) {
       console.error("Auth Error:", err);
-      setError("Technical error during scan. Please check lighting and try again.");
+      setError("Could not complete scan. Please check your lighting.");
     } finally {
       setLoading(false);
     }
@@ -178,6 +186,7 @@ const FaceAuth: React.FC<{ onSuccess: (name: string) => void; language: Language
       videoRef.current.srcObject = null;
     }
     setActive(false);
+    setStatusText('');
   };
 
   if (!active) {
@@ -193,20 +202,40 @@ const FaceAuth: React.FC<{ onSuccess: (name: string) => void; language: Language
 
   return (
     <div className="space-y-6 flex flex-col items-center animate-in zoom-in duration-300">
-      <div className="relative w-64 h-64 rounded-full overflow-hidden border-4 border-green-500 shadow-2xl bg-black">
+      <div className={`relative w-64 h-64 rounded-full overflow-hidden border-4 transition-colors duration-500 shadow-2xl bg-black ${error ? 'border-red-500' : loading ? 'border-indigo-500' : 'border-green-500'}`}>
         <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover scale-x-[-1]" />
-        <div className="animate-scan" />
+        {!loading && !error && <div className="animate-scan" />}
         {loading && (
-          <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-20">
-            <div className="animate-spin rounded-full h-10 w-10 border-4 border-white border-t-transparent" />
+          <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center z-20">
+            <Loader2 size={40} className="text-white animate-spin mb-2" />
+            <span className="text-white text-[10px] font-black uppercase tracking-widest">Verifying...</span>
           </div>
         )}
       </div>
+      
       <canvas ref={canvasRef} className="hidden" />
-      {error && <p className="text-red-500 text-[10px] font-black uppercase tracking-widest text-center max-w-[240px] leading-tight mt-2">{error}</p>}
+
+      <div className="text-center min-h-[40px]">
+        {statusText && <p className="text-green-600 text-[10px] font-black uppercase tracking-widest animate-pulse">{statusText}</p>}
+        {error && <p className="text-red-500 text-[10px] font-black uppercase tracking-widest leading-tight mt-1">{error}</p>}
+      </div>
+
       <div className="flex gap-3 w-full">
-         <Button onClick={captureAndVerify} isLoading={loading} className="flex-1 bg-green-600 hover:bg-green-700 py-4 font-black text-[10px] uppercase tracking-widest">Scan Face</Button>
-         <Button variant="outline" onClick={stopCamera} className="flex-1 py-4 font-black text-[10px] uppercase tracking-widest">Cancel</Button>
+         <Button 
+            onClick={captureAndVerify} 
+            isLoading={loading} 
+            disabled={loading}
+            className="flex-1 bg-green-600 hover:bg-green-700 py-4 font-black text-[10px] uppercase tracking-widest shadow-lg active:scale-95"
+          >
+            {loading ? 'Processing...' : 'Verify Now'}
+          </Button>
+         <Button 
+            variant="outline" 
+            onClick={stopCamera} 
+            className="flex-1 py-4 font-black text-[10px] uppercase tracking-widest border-gray-200"
+          >
+            Cancel
+          </Button>
       </div>
     </div>
   );
@@ -496,7 +525,7 @@ export default function App() {
   const [elderMode, setElderMode] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
   
-  // Persistent items state for Kisan Mandi to fix the "not posting list" bug
+  // Persistent items state for Kisan Mandi
   const [marketItems, setMarketItems] = useState<MarketItem[]>([
     { id: '1', name: 'Organic Wheat', price: '₹25/kg', seller: 'Ramesh Kumar', location: 'Sonapur', contact: '9876543210', image: 'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&q=80&w=400' },
     { id: '2', name: 'Fresh Potatoes', price: '₹15/kg', seller: 'Savitri Devi', location: 'Village East', contact: '9123456780', image: 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?auto=format&fit=crop&q=80&w=400' }
@@ -511,14 +540,23 @@ export default function App() {
   const { t, language } = useLanguage();
 
   const handleLogin = (name?: string) => {
+    // If name is provided via FaceAuth, log in immediately. Otherwise check inputs.
     if (!name && !email) return;
+    
     setLoginLoading(true);
-    setTimeout(() => {
+    // Fake server delay only for password login. FaceAuth success skips this logic.
+    const loginAction = () => {
       setUser({ name: name || email.split('@')[0], email: email || 'face-auth@grameen.com' });
       setLoginLoading(false);
       setModal(ModalType.NONE);
       setView(AppView.PORTAL);
-    }, 1000);
+    };
+
+    if (name) {
+      loginAction();
+    } else {
+      setTimeout(loginAction, 1000);
+    }
   };
 
   return (
