@@ -4,7 +4,7 @@ import { Modal, Button, Input } from './Shared';
 import { generateContent, generateVisionContent, chatWithBot, transliterateText, recognizeSahayakIntent, extractMandiItem } from '../services/geminiService';
 import { getAllCachedItems } from '../services/cacheService';
 import { speak } from '../services/speechService';
-import { Mic, Send, Camera, Upload, Image as ImageIcon, Plus, AlertTriangle, MapPin, MessageCircle, FileText, Download, Check, Languages, Sparkles, User, Activity, ArrowRight, Phone, X, Key, Info, RefreshCw, ShoppingCart, HelpingHand, Stethoscope, Users, HandHeart, ShoppingBag, Volume2 } from 'lucide-react';
+import { Mic, Send, Camera, Upload, Image as ImageIcon, Plus, AlertTriangle, MapPin, MessageCircle, FileText, Download, Check, Languages, Sparkles, User, Activity, ArrowRight, Phone, X, Key, Info, RefreshCw, ShoppingCart, HelpingHand, Stethoscope, Users, HandHeart, ShoppingBag, Volume2, ChevronLeft } from 'lucide-react';
 import { MarketItem, Language, ModalType } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import ReactMarkdown from 'react-markdown';
@@ -196,10 +196,11 @@ export const GlobalChatModal: React.FC<{ isOpen: boolean; onClose: () => void; l
         }
 
         if (onActionTrigger && (sahayakResult.action === "navigate" || sahayakResult.action === "type_health_input" || sahayakResult.action === "plan_mobility")) {
+          // IMPORTANT: Removed onClose() from here to avoid the state reset bug.
+          // App.tsx handles the modal state transition.
           setTimeout(() => {
             onActionTrigger(sahayakResult);
-            onClose();
-          }, 2000);
+          }, 1500);
         }
       } else {
         const fallbackMsg = await generateContent(`The user said "${textToSend}". Clarify that you can only help with: Kisan Mandi, Swasthya Saathi, Community Help, Resume, and Mobility Planner.`, language, "You are SAHAYAK AI. You are strict about only operating website tools. Never chat casually.");
@@ -373,6 +374,7 @@ export const KisanModal: React.FC<{
   setItems: React.Dispatch<React.SetStateAction<MarketItem[]>>;
 }> = ({ isOpen, onClose, language, items, setItems }) => {
   const [view, setView] = useState<'buy' | 'sell'>('buy');
+  const [sellStep, setSellStep] = useState<0 | 1>(0); // 0: Method select, 1: Form/Photo
   const [sellImage, setSellImage] = useState<string | null>(null);
   const [isPosting, setIsPosting] = useState(false);
   const [isVoiceFilling, setIsVoiceFilling] = useState(false);
@@ -398,6 +400,7 @@ export const KisanModal: React.FC<{
       setSellImage(null);
       setNewItem({ name: '', price: '', contact: '', location: 'My Village' });
       setView('buy');
+      setSellStep(0);
     }, 1200);
   };
 
@@ -421,6 +424,7 @@ export const KisanModal: React.FC<{
           contact: extracted.contact || prev.contact,
           location: extracted.location || prev.location
         }));
+        setSellStep(1); // Advance to photo upload after voice fill
       }
     };
     recognition.start();
@@ -432,13 +436,25 @@ export const KisanModal: React.FC<{
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={() => { onClose(); setView('buy'); setSellImage(null); }} title={t("Kisan Mandi")} maxWidth="max-w-4xl">
+    <Modal isOpen={isOpen} onClose={() => { onClose(); setView('buy'); setSellImage(null); setSellStep(0); }} title={t("Kisan Mandi")} maxWidth="max-w-4xl">
       <div className="flex justify-between items-center mb-8">
-        <h3 className="text-2xl font-black text-gray-900 uppercase tracking-tighter">{view === 'buy' ? t("Kisan Mandi") : t("Sell Produce")}</h3>
-        <button onClick={() => setView(view === 'buy' ? 'sell' : 'buy')} className={`px-6 py-3 rounded-xl font-black uppercase tracking-widest text-[10px] transition-all border-2 ${view === 'buy' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-400 border-gray-100'}`}>
+        <h3 className="text-2xl font-black text-gray-900 uppercase tracking-tighter">
+          {view === 'buy' ? t("Kisan Mandi") : t("Sell Produce")}
+        </h3>
+        <button 
+          onClick={() => {
+            if (view === 'buy') setView('sell');
+            else {
+              setView('buy');
+              setSellStep(0);
+            }
+          }} 
+          className={`px-6 py-3 rounded-xl font-black uppercase tracking-widest text-[10px] transition-all border-2 ${view === 'buy' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-400 border-gray-100'}`}
+        >
            {view === 'buy' ? t("Sell Produce") : t("Back to Market")}
         </button>
       </div>
+
       {view === 'buy' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {items.map((item) => (
@@ -467,53 +483,97 @@ export const KisanModal: React.FC<{
           ))}
         </div>
       ) : (
-        <div className="max-w-lg mx-auto space-y-6 pb-10">
-          <div className="bg-green-50 p-6 rounded-3xl border border-green-100 flex items-center justify-between shadow-sm">
-             <div className="flex items-center gap-4">
-               <div className="bg-green-600 text-white p-3 rounded-2xl shadow-lg"><Sparkles size={24}/></div>
-               <div>
-                 <p className="text-xs font-black uppercase tracking-widest text-green-800">Sahayak AI</p>
-                 <p className="text-[10px] text-green-600 font-bold uppercase tracking-widest mt-0.5">{isVoiceFilling ? t("Listening...") : t("Voice Fill Form")}</p>
-               </div>
-             </div>
-             <button 
-               onClick={handleVoiceFill}
-               className={`p-5 rounded-full transition-all shadow-xl active:scale-95 ${isVoiceFilling ? 'bg-red-500 text-white animate-pulse' : 'bg-white text-green-600 hover:bg-green-50 border border-green-100'}`}
-             >
-               <Mic size={28} />
-             </button>
-          </div>
-          
-          {!sellImage ? (
-            <div onClick={() => fileInputRef.current?.click()} className="border-4 border-dashed border-gray-100 bg-gray-50 rounded-[3rem] p-20 flex flex-col items-center gap-4 cursor-pointer hover:bg-green-50 hover:border-green-200 transition-all">
-               <Camera size={48} className="text-gray-300" />
-               <span className="font-black text-gray-400 uppercase tracking-widest text-[10px]">{t("Tap to upload photo")}</span>
-               <input type="file" ref={fileInputRef} hidden accept="image/*" onChange={(e) => {
-                 const file = e.target.files?.[0];
-                 if (file) {
-                   const reader = new FileReader();
-                   reader.onloadend = () => setSellImage(reader.result as string);
-                   reader.readAsDataURL(file);
-                 }
-               }} />
+        <div className="max-w-2xl mx-auto space-y-6 pb-10">
+          {sellStep === 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in slide-in-from-bottom-6">
+              <button 
+                onClick={handleVoiceFill}
+                className="bg-green-600 p-12 rounded-[3rem] border-4 border-white shadow-2xl hover:scale-105 active:scale-95 transition-all flex flex-col items-center gap-6 group"
+              >
+                <div className={`p-6 rounded-full ${isVoiceFilling ? 'bg-red-500 animate-pulse' : 'bg-white/20'} text-white shadow-inner`}>
+                   <Mic size={56} />
+                </div>
+                <div className="text-center">
+                   <h4 className="text-xl font-black text-white uppercase tracking-tighter">{t("Describe via Voice")}</h4>
+                   <p className="text-green-100 text-xs mt-2 font-medium">{t("Tell us what you are selling")}</p>
+                </div>
+              </button>
+              
+              <button 
+                onClick={() => setSellStep(1)}
+                className="bg-white p-12 rounded-[3rem] border-4 border-gray-50 shadow-xl hover:scale-105 active:scale-95 transition-all flex flex-col items-center gap-6 group"
+              >
+                <div className="p-6 rounded-full bg-gray-50 text-green-600 shadow-inner group-hover:bg-green-50">
+                   <Plus size={56} />
+                </div>
+                <div className="text-center">
+                   <h4 className="text-xl font-black text-gray-900 uppercase tracking-tighter">{t("Manual Entry")}</h4>
+                   <p className="text-gray-400 text-xs mt-2 font-medium">{t("Fill details yourself")}</p>
+                </div>
+              </button>
             </div>
           ) : (
-            <div className="space-y-6">
-              <div className="relative group">
-                <img src={sellImage} className="w-full h-56 object-cover rounded-[2.5rem] border-4 border-white shadow-2xl" />
-                <button onClick={() => setSellImage(null)} className="absolute top-4 right-4 bg-red-500 text-white p-2.5 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity active:scale-90">
-                  <X size={18} />
-                </button>
+            <div className="space-y-6 animate-in fade-in duration-500">
+              <button onClick={() => setSellStep(0)} className="flex items-center gap-2 text-gray-400 font-black uppercase tracking-widest text-[10px] mb-4 hover:text-green-600">
+                <ChevronLeft size={16} /> {t("Change Method")}
+              </button>
+              
+              <div className="bg-green-50 p-5 rounded-3xl border border-green-100 flex items-center justify-between shadow-sm">
+                 <div className="flex items-center gap-4">
+                   <div className="bg-green-600 text-white p-3 rounded-2xl shadow-lg"><Sparkles size={20}/></div>
+                   <div>
+                     <p className="text-xs font-black uppercase tracking-widest text-green-800">Sahayak AI</p>
+                     <p className="text-[10px] text-green-600 font-bold uppercase tracking-widest mt-0.5">{isVoiceFilling ? t("Listening...") : t("Update via Voice")}</p>
+                   </div>
+                 </div>
+                 <button 
+                   onClick={handleVoiceFill}
+                   className={`p-4 rounded-full transition-all shadow-lg active:scale-95 ${isVoiceFilling ? 'bg-red-500 text-white animate-pulse' : 'bg-white text-green-600 border border-green-100'}`}
+                 >
+                   <Mic size={24} />
+                 </button>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <Input label={t("Item Name")} placeholder="e.g. Rice" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} />
-                <Input label={t("Price")} placeholder="₹20/kg" value={newItem.price} onChange={e => setNewItem({...newItem, price: e.target.value})} />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <Input label={t("Contact")} type="tel" value={newItem.contact} onChange={e => setNewItem({...newItem, contact: e.target.value})} />
-                <Input label={t("Village / City")} value={newItem.location} onChange={e => setNewItem({...newItem, location: e.target.value})} />
-              </div>
-              <Button onClick={handlePost} isLoading={isPosting} className="w-full py-5 rounded-[2rem] font-black uppercase tracking-widest shadow-xl">{t("Post Listing")}</Button>
+
+              {!sellImage ? (
+                <div className="border-4 border-dashed border-gray-100 bg-gray-50 rounded-[3rem] p-12 flex flex-col items-center gap-6 shadow-inner">
+                   <div className="grid grid-cols-2 gap-4 w-full">
+                      <button onClick={handleVoiceFill} className="flex flex-col items-center gap-2 p-6 bg-white rounded-3xl border border-gray-100 hover:border-green-400 transition-all group">
+                         <div className="p-4 bg-green-50 text-green-600 rounded-2xl group-hover:bg-green-600 group-hover:text-white transition-all"><Mic size={24}/></div>
+                         <span className="font-black text-[10px] uppercase tracking-widest text-gray-500 group-hover:text-green-600">{t("Voice Describe")}</span>
+                      </button>
+                      <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center gap-2 p-6 bg-white rounded-3xl border border-gray-100 hover:border-blue-400 transition-all group">
+                         <div className="p-4 bg-blue-50 text-blue-600 rounded-2xl group-hover:bg-blue-600 group-hover:text-white transition-all"><Camera size={24}/></div>
+                         <span className="font-black text-[10px] uppercase tracking-widest text-gray-500 group-hover:text-blue-600">{t("Choose Photo")}</span>
+                      </button>
+                   </div>
+                   <input type="file" ref={fileInputRef} hidden accept="image/*" onChange={(e) => {
+                     const file = e.target.files?.[0];
+                     if (file) {
+                       const reader = new FileReader();
+                       reader.onloadend = () => setSellImage(reader.result as string);
+                       reader.readAsDataURL(file);
+                     }
+                   }} />
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  <div className="relative group">
+                    <img src={sellImage} className="w-full h-56 object-cover rounded-[2.5rem] border-4 border-white shadow-2xl" />
+                    <button onClick={() => setSellImage(null)} className="absolute top-4 right-4 bg-red-500 text-white p-2.5 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity active:scale-90">
+                      <X size={18} />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <Input label={t("Item Name")} placeholder="e.g. Rice" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} />
+                    <Input label={t("Price")} placeholder="₹20/kg" value={newItem.price} onChange={e => setNewItem({...newItem, price: e.target.value})} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <Input label={t("Contact")} type="tel" value={newItem.contact} onChange={e => setNewItem({...newItem, contact: e.target.value})} />
+                    <Input label={t("Village / City")} value={newItem.location} onChange={e => setNewItem({...newItem, location: e.target.value})} />
+                  </div>
+                  <Button onClick={handlePost} isLoading={isPosting} className="w-full py-5 rounded-[2rem] font-black uppercase tracking-widest shadow-xl">{t("Post Listing")}</Button>
+                </div>
+              )}
             </div>
           )}
         </div>

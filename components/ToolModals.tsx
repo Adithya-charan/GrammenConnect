@@ -177,7 +177,11 @@ export const MobilityModal: React.FC<{ isOpen: boolean; onClose: () => void; lan
   const { t } = useLanguage();
 
   useEffect(() => {
-    if (initialData && isOpen) setData(prev => ({ ...prev, ...initialData }));
+    if (initialData && isOpen) {
+      setData(prev => ({ ...prev, ...initialData }));
+      // If we got initial data, potentially skip to end or aid selection
+      if (initialData.start && initialData.end) setWizardStep(3);
+    }
   }, [initialData, isOpen]);
 
   useEffect(() => {

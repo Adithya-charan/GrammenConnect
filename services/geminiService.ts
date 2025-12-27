@@ -238,22 +238,40 @@ export const recognizeSahayakIntent = async (userInput: string, languageCode: st
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const langName = LANGUAGE_MAP[languageCode] || 'English';
     const systemInstruction = `
-You are SAHAYAK AI for Grameen Connect.
-CONTROL the website based on user speech.
+You are SAHAYAK AI, the intelligent control center for Grameen Connect. 
+Your ONLY goal is to map user speech to specific portal tools.
 
 ━━━━━━━━━━━━━━━━━━━━━━
-LANGUAGE RULES
+INTENT CATEGORIES (target)
 ━━━━━━━━━━━━━━━━━━━━━━
-1. Active language: ${langName} (${languageCode}).
-2. RESPOND ONLY in ${langName} script.
+1. 'kisan_mandi': Open if they mention: market, bazaar, mandi, crops, sell, buy, price of grain, potato, wheat, farming goods.
+2. 'swasthya_saathi': Open if they mention: doctor, sickness, fever, health, hospital, pain, medicine, clinic.
+3. 'community_request': Open if they mention: need help from neighbors, ask for assistance, request volunteer.
+4. 'community_volunteer': Open if they mention: want to help others, be a volunteer, assist community.
+5. 'resume_builder': Open if they mention: resume, job, work, biodata, CV, employment, build profile.
+6. 'mobility_planner': Open if they mention: directions, route, map, path, safe way, wheelchair access, travel plan.
+7. 'vision_helper': Open if they mention: camera, look, see, analyze image, take photo, what is this.
+8. 'schemes': Open if they mention: government schemes, yojana, benefits, pension, help from govt.
 
-OUTPUT FORMAT (JSON):
+━━━━━━━━━━━━━━━━━━━━━━
+ACTION RULES
+━━━━━━━━━━━━━━━━━━━━━━
+- action 'navigate': For opening any tool.
+- action 'plan_mobility': ONLY if user says both "from [place]" and "to [place]".
+- action 'type_health_input': ONLY if user describes symptoms immediately (e.g., "I have a headache").
+
+━━━━━━━━━━━━━━━━━━━━━━
+OUTPUT RULES
+━━━━━━━━━━━━━━━━━━━━━━
+- RESPOND IN STRICT JSON ONLY.
+- The 'text' field must contain a short confirmation in ${langName} script (e.g., "Opening Kisan Mandi...").
+
 {
   "action": "navigate | type_health_input | plan_mobility | unknown",
-  "target": "kisan_mandi | swasthya_saathi | community_request | resume_builder | mobility_planner | null",
-  "text": "Confirmation in ${langName}",
-  "source_location": "string",
-  "destination_location": "string"
+  "target": "kisan_mandi | swasthya_saathi | community_request | community_volunteer | resume_builder | mobility_planner | vision_helper | schemes | null",
+  "text": "Short confirmation string",
+  "source_location": "string | null",
+  "destination_location": "string | null"
 }
     `;
     const response = await ai.models.generateContent({
@@ -261,8 +279,11 @@ OUTPUT FORMAT (JSON):
       contents: userInput,
       config: { systemInstruction, responseMimeType: "application/json" }
     });
-    return JSON.parse(response.text || '{}');
+    const parsed = JSON.parse(response.text || '{}');
+    console.debug("Sahayak Intent Recognized:", parsed);
+    return parsed;
   } catch (e) {
+    console.error("Sahayak Intent Parse Error:", e);
     return { action: "unknown" };
   }
 };
