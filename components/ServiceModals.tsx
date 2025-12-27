@@ -4,13 +4,13 @@ import { Modal, Button, Input } from './Shared';
 import { generateContent, generateVisionContent, chatWithBot, transliterateText, recognizeSahayakIntent, extractMandiItem } from '../services/geminiService';
 import { getAllCachedItems } from '../services/cacheService';
 import { speak } from '../services/speechService';
-import { Mic, Send, Camera, Upload, Image as ImageIcon, Plus, AlertTriangle, MapPin, MessageCircle, FileText, Download, Check, Languages, Sparkles, User, Activity, ArrowRight, Phone, X, Key, Info, RefreshCw, ShoppingCart, HelpingHand, Stethoscope, Users, HandHeart, ShoppingBag, Volume2, ChevronLeft } from 'lucide-react';
+import { Mic, Send, Camera, Upload, Image as ImageIcon, Plus, AlertTriangle, MapPin, MessageCircle, FileText, Download, Check, Languages, Sparkles, User, Activity, ArrowRight, Phone, X, Key, Info, RefreshCw, ShoppingCart, HelpingHand, Stethoscope, Users, HandHeart, ShoppingBag, Volume2, VolumeX, ChevronLeft } from 'lucide-react';
 import { MarketItem, Language, ModalType } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import ReactMarkdown from 'react-markdown';
 
 const SPEECH_LANG_MAP: Record<Language, string> = {
-  'en': 'en-IN', 'hi': 'hi-IN', 'bn': 'bn-IN', 'te': 'te-IN', 'mr': 'mr-IN', 'ta': 'ta-IN', 'ur': 'ur-IN', 'gu': 'gu-IN', 'kn': 'kn-IN', 'ml': 'ml-IN', 'pa': 'pa-IN', 'or': 'or-IN', 'as': 'as-IN' 
+  'en': 'en-IN', 'hi': 'hi-IN', 'bn': 'bn-IN', 'te': 'te-IN', 'mr': 'mr-IN', 'ta': 'ta-IN', 'ur': 'ur-PK', 'gu': 'gu-IN', 'kn': 'kn-IN', 'ml': 'ml-IN', 'pa': 'pa-IN', 'or': 'or-IN', 'as': 'as-IN' 
 };
 
 export const simulateDownload = (fileName: string, content: string) => {
@@ -50,40 +50,111 @@ export const GovernanceModal: React.FC<{ isOpen: boolean; onClose: () => void; l
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [autoSpeak, setAutoSpeak] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { if (isOpen) bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isOpen]);
 
-  const handleSend = async () => {
-    if (!input.trim() || loading) return;
-    const userMsg = input;
-    setInput('');
-    setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
+  const handleSend = async (forcedText?: string) => {
+    const textToSend = forcedText || input;
+    if (!textToSend.trim() || loading) return;
+    
+    if (!forcedText) setInput('');
+    setMessages(prev => [...prev, { role: 'user', text: textToSend }]);
     setLoading(true);
-    const response = await chatWithBot(messages, userMsg, "You are Sarkari Saathi, a professional yet accessible assistant helping Indian rural citizens with government-related queries like forms, RTI, and public services.", language);
-    setMessages(prev => [...prev, { role: 'model', text: response }]);
-    setLoading(false);
+    
+    try {
+        const response = await chatWithBot(messages, textToSend, "You are Sarkari Saathi, a professional yet accessible assistant helping Indian rural citizens with government-related queries like forms, RTI, and public services.", language);
+        setMessages(prev => [...prev, { role: 'model', text: response }]);
+        setLoading(false);
+        
+        if (autoSpeak && !response.includes("API Quota")) {
+            speak(response.replace(/[#*`]/g, ''), language);
+        }
+    } catch (e) {
+        console.error(e);
+        setLoading(false);
+    }
+  };
+
+  const startListening = () => {
+    if (!('webkitSpeechRecognition' in window)) {
+      alert("Voice recognition not supported in this browser.");
+      return;
+    }
+    const recognition = new (window as any).webkitSpeechRecognition();
+    recognition.lang = SPEECH_LANG_MAP[language] || 'en-IN';
+    recognition.onstart = () => setListening(true);
+    recognition.onend = () => setListening(false);
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      handleSend(transcript);
+    };
+    recognition.start();
   };
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={t("Governance Aid")} maxWidth="max-w-md">
        <div className="flex flex-col h-[550px]">
+         <div className="flex items-center justify-between px-2 mb-4">
+            <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${autoSpeak ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`}></div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">{autoSpeak ? t("Auto-Speak On") : t("Auto-Speak Off")}</span>
+            </div>
+            <button 
+                onClick={() => setAutoSpeak(!autoSpeak)}
+                className={`p-2 rounded-xl transition-all ${autoSpeak ? 'bg-green-50 text-green-600 border border-green-100' : 'bg-gray-50 text-gray-400 border border-gray-100'}`}
+            >
+                {autoSpeak ? <Volume2 size={16}/> : <VolumeX size={16}/>}
+            </button>
+         </div>
+
          <div className="flex-1 overflow-y-auto space-y-4 p-2 custom-scrollbar">
            {messages.map((m, i) => (
              <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-               <div className={`max-w-[85%] p-4 rounded-2xl text-sm font-medium ${m.role === 'user' ? 'bg-red-600 text-white shadow-lg' : 'bg-gray-100 text-gray-800 shadow-sm'}`}>
+               <div className={`max-w-[85%] p-4 rounded-2xl text-sm font-medium relative group ${m.role === 'user' ? 'bg-red-600 text-white shadow-lg' : 'bg-gray-100 text-gray-800 shadow-sm'}`}>
                  <ReactMarkdown className="prose prose-sm max-w-none">{m.text}</ReactMarkdown>
+                 {m.role === 'model' && (
+                   <button 
+                    onClick={() => speak(m.text.replace(/[#*`]/g, ''), language)}
+                    className="absolute -right-10 top-1/2 -translate-y-1/2 p-2 bg-white rounded-full shadow-md text-red-600 opacity-0 group-hover:opacity-100 transition-all active:scale-90"
+                    title="Speak"
+                   >
+                     <Volume2 size={14} />
+                   </button>
+                 )}
                </div>
              </div>
            ))}
            {loading && <div className="text-xs text-gray-400 font-black animate-pulse uppercase tracking-widest">Sarkari Saathi thinking...</div>}
            <div ref={bottomRef} />
          </div>
-         <div className="pt-4 mt-4 border-t flex gap-3 items-center">
-           <PhoneticHelper text={input} setText={setInput} targetLang={language} />
-           <div className="flex-1 relative">
-             <input className="w-full bg-gray-50 border-2 border-transparent rounded-full px-5 py-3 outline-none focus:bg-white focus:border-red-500 font-medium text-sm pr-12" placeholder={t("Ask about services...")} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} />
-             <button onClick={handleSend} className="absolute right-2 top-1/2 -translate-y-1/2 bg-red-600 text-white p-2 rounded-full hover:bg-red-700 shadow-md transition-all active:scale-90"><Send size={16} /></button>
+
+         <div className="pt-4 mt-4 border-t flex flex-col gap-3">
+           <div className="flex gap-2">
+             <PhoneticHelper text={input} setText={setInput} targetLang={language} />
+             <div className="flex-1 relative">
+               <input 
+                 className="w-full bg-gray-50 border-2 border-transparent rounded-full px-5 py-3 outline-none focus:bg-white focus:border-red-500 font-medium text-sm pr-12" 
+                 placeholder={t("Ask about services...")} 
+                 value={input} 
+                 onChange={(e) => setInput(e.target.value)} 
+                 onKeyDown={(e) => e.key === 'Enter' && handleSend()} 
+               />
+               <button 
+                 onClick={() => handleSend()} 
+                 className="absolute right-2 top-1/2 -translate-y-1/2 bg-red-600 text-white p-2 rounded-full hover:bg-red-700 shadow-md transition-all active:scale-90"
+               >
+                 <Send size={16} />
+               </button>
+             </div>
+             <button 
+               onClick={startListening} 
+               className={`p-3 rounded-full shadow-lg transition-all active:scale-90 ${listening ? 'bg-red-500 animate-pulse text-white' : 'bg-purple-600 text-white hover:bg-purple-700'}`}
+             >
+               <Mic size={20} />
+             </button>
            </div>
          </div>
        </div>
@@ -196,19 +267,18 @@ export const GlobalChatModal: React.FC<{ isOpen: boolean; onClose: () => void; l
         }
 
         if (onActionTrigger && (sahayakResult.action === "navigate" || sahayakResult.action === "type_health_input" || sahayakResult.action === "plan_mobility")) {
-          // IMPORTANT: Removed onClose() from here to avoid the state reset bug.
-          // App.tsx handles the modal state transition.
           setTimeout(() => {
             onActionTrigger(sahayakResult);
           }, 1500);
         }
       } else {
-        const fallbackMsg = await generateContent(`The user said "${textToSend}". Clarify that you can only help with: Kisan Mandi, Swasthya Saathi, Community Help, Resume, and Mobility Planner.`, language, "You are SAHAYAK AI. You are strict about only operating website tools. Never chat casually.");
-        setMessages(prev => [...prev, { role: 'model', text: fallbackMsg }]);
-        speak(fallbackMsg, language);
+        const text = sahayakResult.text || `I can help with: Kisan Mandi, Swasthya Saathi, Community Help, Resume, and Mobility Planner.`;
+        setMessages(prev => [...prev, { role: 'model', text: text }]);
+        speak(text, language);
       }
     } catch (e) {
       console.error("Sahayak Processing Error:", e);
+      setMessages(prev => [...prev, { role: 'model', text: "I'm having trouble understanding right now. Please try again." }]);
     } finally {
       setLoading(false);
     }
@@ -494,7 +564,7 @@ export const KisanModal: React.FC<{
                    <Mic size={56} />
                 </div>
                 <div className="text-center">
-                   <h4 className="text-xl font-black text-white uppercase tracking-tighter">{t("Describe via Voice")}</h4>
+                   <h4 className="text-xl font-black text-white uppercase tracking-tighter">{t("Voice Describe")}</h4>
                    <p className="text-green-100 text-xs mt-2 font-medium">{t("Tell us what you are selling")}</p>
                 </div>
               </button>

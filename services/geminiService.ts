@@ -15,6 +15,50 @@ const getLanguageInstruction = (lang: string) => {
 };
 
 /**
+ * Enhanced error handler to catch quota and rate limit issues specifically.
+ */
+const handleApiError = (error: any): string => {
+  console.error("Gemini API Error Detail:", error);
+  
+  let errorMsg = "";
+  if (typeof error === 'string') {
+    errorMsg = error;
+  } else if (error instanceof Error) {
+    errorMsg = error.message;
+  } else if (error && typeof error === 'object') {
+    // Extract message from nested structures often found in API responses
+    errorMsg = error.message || error.error?.message || JSON.stringify(error);
+  } else {
+    errorMsg = String(error);
+  }
+
+  const lowMessage = errorMsg.toLowerCase();
+  
+  // Catch 429, Resource Exhausted, Quota Exceeded, etc.
+  if (
+    lowMessage.includes("429") || 
+    lowMessage.includes("quota") || 
+    lowMessage.includes("resource_exhausted") || 
+    lowMessage.includes("rate limit") ||
+    lowMessage.includes("too many requests")
+  ) {
+    return "The AI assistant is taking a short break due to high demand. Please try again in about 60 seconds.";
+  }
+  
+  // Catch authentication issues
+  if (
+    lowMessage.includes("api key") || 
+    lowMessage.includes("unauthorized") || 
+    lowMessage.includes("forbidden")
+  ) {
+    return "There is a temporary configuration issue with the AI service. Please try again later.";
+  }
+
+  // Generic fallback
+  return "I am having trouble connecting to the AI assistant right now. Please check your internet or try again in a moment.";
+};
+
+/**
  * Standard content generation using Gemini 3 Flash.
  */
 export const generateContent = async (prompt: string, language: string = 'en', systemInstruction?: string): Promise<string> => {
@@ -27,7 +71,7 @@ export const generateContent = async (prompt: string, language: string = 'en', s
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
@@ -35,14 +79,14 @@ export const generateContent = async (prompt: string, language: string = 'en', s
         systemInstruction: (systemInstruction || '') + getLanguageInstruction(language) 
       }
     });
+    
     const text = response.text || "No response generated.";
     if (text && text !== "No response generated.") {
       saveToCache(cacheKey, text);
     }
     return text;
   } catch (error) {
-    console.error("Gemini Content Error:", error);
-    return "I am having trouble connecting right now. Please try again.";
+    return handleApiError(error);
   }
 };
 
@@ -56,10 +100,9 @@ export const getMobilityPlan = async (
   language: string
 ): Promise<{ text: string; links: { title: string; uri: string }[] }> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
     const langName = LANGUAGE_MAP[language] || 'English';
     
-    // Get current position if possible for grounding
     let latLng = undefined;
     try {
       const pos = await new Promise<GeolocationPosition>((res, rej) => 
@@ -107,8 +150,7 @@ export const getMobilityPlan = async (
 
     return { text, links };
   } catch (error) {
-    console.error("Mobility Plan Error:", error);
-    return { text: "Connection error. Please try again.", links: [] };
+    return { text: handleApiError(error), links: [] };
   }
 };
 
@@ -117,7 +159,7 @@ export const getMobilityPlan = async (
  */
 export const extractMobilityDetails = async (speech: string, language: string): Promise<{ start: string; end: string; aid: string }> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: `Extract trip details from: "${speech}"`,
@@ -146,7 +188,7 @@ export const extractMobilityDetails = async (speech: string, language: string): 
  */
 export const extractResumeDetails = async (speech: string, language: string): Promise<{ name: string; location: string; skills: string; experience: string; education: string }> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: `Extract personal details from: "${speech}"`,
@@ -177,7 +219,7 @@ export const extractResumeDetails = async (speech: string, language: string): Pr
  */
 export const extractSchemeDetails = async (speech: string, language: string): Promise<{ age: string; gender: string; occupation: string; income: string; state: string }> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: `Extract profile details from: "${speech}"`,
@@ -208,7 +250,7 @@ export const extractSchemeDetails = async (speech: string, language: string): Pr
  */
 export const extractMandiItem = async (speech: string, language: string): Promise<{ name: string; price: string; contact: string; location: string }> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: `Extract item details from: "${speech}"`,
@@ -235,7 +277,7 @@ export const extractMandiItem = async (speech: string, language: string): Promis
 
 export const recognizeSahayakIntent = async (userInput: string, languageCode: string): Promise<any> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
     const langName = LANGUAGE_MAP[languageCode] || 'English';
     const systemInstruction = `
 You are SAHAYAK AI, the intelligent control center for Grameen Connect. 
@@ -244,32 +286,26 @@ Your ONLY goal is to map user speech to specific portal tools.
 ━━━━━━━━━━━━━━━━━━━━━━
 INTENT CATEGORIES (target)
 ━━━━━━━━━━━━━━━━━━━━━━
-1. 'kisan_mandi': Open if they mention: market, bazaar, mandi, crops, sell, buy, price of grain, potato, wheat, farming goods.
-2. 'swasthya_saathi': Open if they mention: doctor, sickness, fever, health, hospital, pain, medicine, clinic.
-3. 'community_request': Open if they mention: need help from neighbors, ask for assistance, request volunteer.
-4. 'community_volunteer': Open if they mention: want to help others, be a volunteer, assist community.
-5. 'resume_builder': Open if they mention: resume, job, work, biodata, CV, employment, build profile.
-6. 'mobility_planner': Open if they mention: directions, route, map, path, safe way, wheelchair access, travel plan.
-7. 'vision_helper': Open if they mention: camera, look, see, analyze image, take photo, what is this.
-8. 'schemes': Open if they mention: government schemes, yojana, benefits, pension, help from govt.
+1. 'kisan_mandi': market, mandi, crops, sell, buy, bazaar.
+2. 'swasthya_saathi': doctor, fever, health, medicine, sickness.
+3. 'community_request': need help, assistant, volunteer request.
+4. 'resume_builder': resume, job, biodata, CV, work.
+5. 'mobility_planner': route, directions, path, safe way.
+6. 'vision_helper': camera, look, analyze, take photo.
+7. 'schemes': government schemes, yojana, benefits, govt.
 
 ━━━━━━━━━━━━━━━━━━━━━━
 ACTION RULES
 ━━━━━━━━━━━━━━━━━━━━━━
-- action 'navigate': For opening any tool.
-- action 'plan_mobility': ONLY if user says both "from [place]" and "to [place]".
-- action 'type_health_input': ONLY if user describes symptoms immediately (e.g., "I have a headache").
+- action 'navigate': opening tools.
+- action 'plan_mobility': if user says "from [X] to [Y]".
+- action 'type_health_input': if symptoms provided immediately.
 
-━━━━━━━━━━━━━━━━━━━━━━
-OUTPUT RULES
-━━━━━━━━━━━━━━━━━━━━━━
-- RESPOND IN STRICT JSON ONLY.
-- The 'text' field must contain a short confirmation in ${langName} script (e.g., "Opening Kisan Mandi...").
-
+OUTPUT RULES (STRICT JSON):
 {
   "action": "navigate | type_health_input | plan_mobility | unknown",
-  "target": "kisan_mandi | swasthya_saathi | community_request | community_volunteer | resume_builder | mobility_planner | vision_helper | schemes | null",
-  "text": "Short confirmation string",
+  "target": "kisan_mandi | swasthya_saathi | community_request | resume_builder | mobility_planner | vision_helper | schemes | null",
+  "text": "Short confirmation string in ${langName}",
   "source_location": "string | null",
   "destination_location": "string | null"
 }
@@ -279,12 +315,19 @@ OUTPUT RULES
       contents: userInput,
       config: { systemInstruction, responseMimeType: "application/json" }
     });
-    const parsed = JSON.parse(response.text || '{}');
-    console.debug("Sahayak Intent Recognized:", parsed);
-    return parsed;
+    
+    const text = response.text || "";
+    
+    // Check if the response is actually an error message returned from the API (if not using throw)
+    // although with @google/genai it usually throws.
+    if (!text.trim().startsWith('{') || text.includes("too many requests") || text.includes("break")) {
+      return { action: "unknown", text: text.includes("requests") ? text : "The assistant is busy right now. Please try again shortly." };
+    }
+
+    return JSON.parse(text || '{}');
   } catch (e) {
-    console.error("Sahayak Intent Parse Error:", e);
-    return { action: "unknown" };
+    const errorMsg = handleApiError(e);
+    return { action: "unknown", text: errorMsg };
   }
 };
 
@@ -296,38 +339,44 @@ export const generateVisionContent = async (
   skipLanguageInstruction: boolean = false
 ): Promise<string> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: { parts: [{ inlineData: { mimeType, data: base64Image } }, { text: prompt }] },
       config: { systemInstruction: skipLanguageInstruction ? "Analysis prompt." : getLanguageInstruction(language) }
     });
     return response.text || "";
-  } catch (error) { return "Error analyzing."; }
+  } catch (error) { 
+    return handleApiError(error); 
+  }
 };
 
 export const chatWithBot = async (history: any[], message: string, systemInstruction: string, language: string = 'en') => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
     const chat = ai.chats.create({
       model: 'gemini-3-flash-preview',
       config: { systemInstruction: systemInstruction + getLanguageInstruction(language), temperature: 0.7 },
       history: history.map(h => ({ role: h.role === 'user' ? 'user' : 'model', parts: [{ text: h.text }] }))
     });
     const result = await chat.sendMessage({ message });
-    return result.text;
-  } catch (e: any) { return "Connection error."; }
+    return result.text || "No response generated.";
+  } catch (e: any) { 
+    return handleApiError(e); 
+  }
 };
 
 export const transliterateText = async (text: string, targetLang: string): Promise<string> => {
   if (!text || targetLang === 'en') return text;
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: `Transliterate into ${LANGUAGE_MAP[targetLang]} script: "${text}"`,
       config: { systemInstruction: "Output ONLY the script. No English." }
     });
     return response.text?.trim() || text;
-  } catch { return text; }
+  } catch { 
+    return text; 
+  }
 };

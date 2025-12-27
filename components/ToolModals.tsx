@@ -18,7 +18,7 @@ L.Icon.Default.mergeOptions({
 });
 
 const SPEECH_LANG_MAP: Record<string, string> = {
-  'en': 'en-IN', 'hi': 'hi-IN', 'bn': 'bn-IN', 'te': 'te-IN', 'mr': 'mr-IN', 'ta': 'ta-IN', 'ur': 'ur-IN', 'gu': 'gu-IN', 'kn': 'kn-IN', 'ml': 'ml-IN', 'pa': 'pa-IN', 'or': 'or-IN', 'as': 'as-IN' 
+  'en': 'en-IN', 'hi': 'hi-IN', 'bn': 'bn-IN', 'te': 'te-IN', 'mr': 'mr-IN', 'ta': 'ta-IN', 'ur': 'ur-PK', 'gu': 'gu-IN', 'kn': 'kn-IN', 'ml': 'ml-IN', 'pa': 'pa-IN', 'or': 'or-IN', 'as': 'as-IN' 
 };
 
 // --- Resume Builder ---
@@ -179,7 +179,6 @@ export const MobilityModal: React.FC<{ isOpen: boolean; onClose: () => void; lan
   useEffect(() => {
     if (initialData && isOpen) {
       setData(prev => ({ ...prev, ...initialData }));
-      // If we got initial data, potentially skip to end or aid selection
       if (initialData.start && initialData.end) setWizardStep(3);
     }
   }, [initialData, isOpen]);
@@ -187,19 +186,18 @@ export const MobilityModal: React.FC<{ isOpen: boolean; onClose: () => void; lan
   useEffect(() => {
     let timer: any;
     if (wizardStep === 4 && mapRef.current) {
-      // Small delay to ensure modal animation is complete and dimensions are stable
       timer = setTimeout(() => {
         if (!mapRef.current || leafletMap.current) return;
         
         const hash = (str: string) => str.split('').reduce((a, b) => a + b.charCodeAt(0), 0);
-        const lat = 20.5937 + ((hash(data.start) % 400) - 200) / 100; 
-        const lng = 78.9629 + ((hash(data.end) % 400) - 200) / 100;
+        const lat = 20.5937 + ((hash(data.start) % 400) - 200) / 1000; 
+        const lng = 78.9629 + ((hash(data.end) % 400) - 200) / 1000;
         
         try {
           leafletMap.current = L.map(mapRef.current, { 
             zoomControl: true, 
             scrollWheelZoom: false 
-          }).setView([lat, lng], 11);
+          }).setView([lat, lng], 13);
           
           L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { 
             attribution: '&copy; OpenStreetMap' 
@@ -207,14 +205,14 @@ export const MobilityModal: React.FC<{ isOpen: boolean; onClose: () => void; lan
           
           L.marker([lat, lng]).addTo(leafletMap.current).bindPopup(`${t("Start Location")}: ${data.start}`).openPopup();
           
-          // CRITICAL: Leaflet needs this if initialized in a hidden/animated container
-          setTimeout(() => {
-            leafletMap.current?.invalidateSize();
-          }, 300);
+          // CRITICAL: Call invalidateSize after slight delay to handle modal rendering/small screens
+          setTimeout(() => leafletMap.current?.invalidateSize(), 200);
+          setTimeout(() => leafletMap.current?.invalidateSize(), 600);
+          setTimeout(() => leafletMap.current?.invalidateSize(), 1500);
         } catch (e) { 
           console.error("Map Error:", e); 
         }
-      }, 500);
+      }, 600);
     }
     return () => {
       clearTimeout(timer);
@@ -260,7 +258,7 @@ export const MobilityModal: React.FC<{ isOpen: boolean; onClose: () => void; lan
   const prev = () => setWizardStep(wizardStep - 1);
 
   return (
-    <Modal isOpen={isOpen} onClose={() => { onClose(); setWizardStep(1); setPlanningResult(null); }} title={t("Mobility Planner")}>
+    <Modal isOpen={isOpen} onClose={() => { onClose(); setWizardStep(1); setPlanningResult(null); }} title={t("Mobility Planner")} maxWidth="max-w-4xl">
       <div className="space-y-6">
         {wizardStep < 4 && (
           <div className="bg-green-50 p-5 rounded-3xl border border-green-100 flex items-center justify-between shadow-sm">
@@ -288,7 +286,7 @@ export const MobilityModal: React.FC<{ isOpen: boolean; onClose: () => void; lan
           </div>
         )}
 
-        <div className="min-h-[220px]">
+        <div className="min-h-[350px]">
           {wizardStep === 1 && (
             <div className="space-y-4 animate-in slide-in-from-right-4 duration-300">
                <h3 className="text-2xl font-black text-gray-900 uppercase tracking-tighter">{t("Select Start")}</h3>
@@ -316,7 +314,7 @@ export const MobilityModal: React.FC<{ isOpen: boolean; onClose: () => void; lan
           {wizardStep === 4 && (
             <div className="space-y-4 animate-in fade-in duration-500">
                {loading ? (
-                 <div className="flex flex-col items-center justify-center py-20 gap-4"><div className="animate-spin rounded-full h-12 w-12 border-4 border-green-500 border-t-transparent"></div><p className="text-xs font-black text-gray-400 uppercase tracking-widest">{t("Calculating Path")}</p></div>
+                 <div className="flex flex-col items-center justify-center py-24 gap-4"><div className="animate-spin rounded-full h-12 w-12 border-4 border-green-500 border-t-transparent"></div><p className="text-xs font-black text-gray-400 uppercase tracking-widest">{t("Calculating Path")}</p></div>
                ) : planningResult && (
                  <div className="space-y-5">
                    <div className="bg-emerald-50 border-2 border-emerald-100 rounded-[2.5rem] p-6 relative">
@@ -329,8 +327,9 @@ export const MobilityModal: React.FC<{ isOpen: boolean; onClose: () => void; lan
                        <a key={idx} href={link.uri} target="_blank" rel="noopener noreferrer" className="bg-blue-50 text-blue-700 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border border-blue-100 flex items-center gap-2 hover:bg-blue-100 transition-all"><ExternalLink size={14}/> {link.title}</a>
                      ))}
                    </div>
-                   <div className="h-64 w-full bg-gray-50 rounded-[2.5rem] overflow-hidden border-2 border-gray-100 shadow-inner">
-                      <div ref={mapRef} className="h-full w-full" style={{ zIndex: 1 }} />
+                   {/* Responsive Map Height for small screens */}
+                   <div className="h-[50vh] min-h-[300px] max-h-[500px] w-full bg-gray-50 rounded-[2.5rem] overflow-hidden border-2 border-gray-100 shadow-inner relative">
+                      <div ref={mapRef} className="absolute inset-0 w-full h-full" style={{ zIndex: 1 }} />
                    </div>
                    <Button variant="outline" onClick={() => { setWizardStep(1); setPlanningResult(null); }} className="w-full py-4 rounded-3xl font-black uppercase tracking-widest text-[10px]">{t("Plan Another")}</Button>
                  </div>
